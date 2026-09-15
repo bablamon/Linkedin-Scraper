@@ -173,6 +173,29 @@ class TestDateRange:
         d = parse_date_range(None)
         assert d.raw is None and d.current is False
 
+    def test_no_middot_before_duration_is_still_current(self):
+        # Captured live from linkedin.com/in/williamhgates — LinkedIn renders
+        # this form with no "·" at all, unlike the fixture's "· 4 yrs 6 mos".
+        d = parse_date_range("2000 - Present 26 years")
+        assert (d.start, d.end, d.duration, d.current) == ("2000", "Present", "26 years", True)
+
+    def test_no_middot_duration_years_and_months(self):
+        d = parse_date_range("Jan 2020 - Present 3 yrs 2 mos")
+        assert (d.end, d.duration, d.current) == ("Present", "3 yrs 2 mos", True)
+
+    def test_no_middot_duration_months_only(self):
+        d = parse_date_range("Jan 2024 - Present 3 mos")
+        assert (d.end, d.duration, d.current) == ("Present", "3 mos", True)
+
+    def test_no_middot_duration_on_a_past_role(self):
+        d = parse_date_range("Jun 2017 - Feb 2021 3 yrs 9 mos")
+        assert (d.start, d.end, d.duration, d.current) == ("Jun 2017", "Feb 2021", "3 yrs 9 mos", False)
+
+    def test_years_only_is_not_mistaken_for_a_duration_suffix(self):
+        # "2016" alone must not match the duration-tail pattern.
+        d = parse_date_range("2012 - 2016")
+        assert (d.start, d.end, d.duration) == ("2012", "2016", None)
+
 
 class TestPublicContactHints:
     """Bio-text mining: the only contact-adjacent data available without login —

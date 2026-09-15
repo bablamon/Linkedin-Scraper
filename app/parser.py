@@ -56,6 +56,13 @@ _FOLLOWERS_RE = re.compile(r"([\d.,\s]+)\s*(?:followers|abonnés|seguidores)", r
 _CONNECTIONS_RE = re.compile(r"([\d.,\s]+\+?)\s*(?:connections?|relations)", re.I)
 _DATE_SPLIT_RE = re.compile(r"\s*[-–—]\s*")
 _CURRENT_WORDS = {"present", "current", "aujourd'hui", "actualidad", "heute"}
+# LinkedIn doesn't always put a "·" before the duration — verified live against
+# "2000 - Present 26 years" (no separator at all). Matches a trailing duration
+# expression so it can be split off whether or not "·" is present.
+_DURATION_TAIL_RE = re.compile(
+    r"\s*(\d+\s*(?:yrs?|years?)(?:\s*\d+\s*(?:mos?|months?))?|\d+\s*(?:mos?|months?))\s*$",
+    re.IGNORECASE,
+)
 
 
 def _clean(value: str | None) -> str | None:
@@ -105,7 +112,11 @@ def _to_int(value: str | None) -> int | None:
 
 
 def parse_date_range(raw: str | None) -> DateRange:
-    """`Jan 2020 - Present · 3 yrs 2 mos` -> structured parts."""
+    """`Jan 2020 - Present · 3 yrs 2 mos` -> structured parts.
+
+    Also handles `Jan 2020 - Present 3 yrs 2 mos` (no "·") — LinkedIn renders
+    both forms depending on the section/locale.
+    """
     text = _clean(raw)
     if not text:
         return DateRange()
@@ -113,9 +124,14 @@ def parse_date_range(raw: str | None) -> DateRange:
     if "·" in text:
         range_part, _, duration_part = text.partition("·")
         duration = _clean(duration_part)
+        range_part = _clean(range_part) or ""
     else:
         range_part = text
-    pieces = [p for p in _DATE_SPLIT_RE.split(_clean(range_part) or "") if p]
+        match = _DURATION_TAIL_RE.search(range_part)
+        if match:
+            duration = _clean(match.group(1))
+            range_part = _clean(range_part[: match.start()]) or ""
+    pieces = [p for p in _DATE_SPLIT_RE.split(range_part) if p]
     start = pieces[0] if pieces else None
     end = pieces[1] if len(pieces) > 1 else None
     current = bool(end and end.strip().lower() in _CURRENT_WORDS)
