@@ -1,0 +1,41 @@
+{
+  "data": {
+    "entityUrn": "urn:li:collectionResponse:abc123",
+    "paging": { "count": 10, "start": 0, "links": [] },
+    "*elements": ["urn:li:fsd_profile:ACoAAFAKEURN000example"],
+    "$type": "com.linkedin.restli.common.CollectionResponse"
+  },
+  "included": [
+    {
+      "entityUrn": "urn:li:fsd_profile:ACoAAOTHER111noise",
+      "badgeType": "VERIFIED_PROFILE",
+      "$type": "com.linkedin.voyager.dash.identity.profile.MemberBadge"
+    },
+    {
+      "entityUrn": "urn:li:fsd_profile:ACoAAFAKEURN000example",
+      "objectUrn": "urn:li:member:999000111",
+      "publicIdentifier": "jean-example-42a1b3",
+      "multiLocaleFirstName": { "en_US": "Jean" },
+      "multiLocaleLastName": { "en_US": "Example" },
+      "emailAddress": {
+        "emailAddress": "jean@example.com",
+        "confirmed": true,
+        "primary": true,
+        "$type": "com.linkedin.voyager.dash.common.handles.EmailAddress"
+      },
+      "phoneNumbers": [
+        { "type": "MOBILE", "number": "+33 6 12 34 56 78", "$type": "com.linkedin.voyager.dash.common.handles.PhoneNumber" }
+      ],
+      "websites": [
+        { "category": "PORTFOLIO", "url": "https://jean.example.dev/", "$type": "com.linkedin.voyager.dash.identity.profile.Website" },
+        { "category": "COMPANY", "url": "https://acme.example/", "$type": "com.linkedin.voyager.dash.identity.profile.Website" }
+      ],
+      "twitterHandles": [
+        { "name": "jean_builds", "$type": "com.linkedin.voyager.dash.identity.profile.TwitterHandle" }
+      ],
+      "address": "12 Rue de Rivoli, 75001 Paris, France",
+      "birthDateOn": { "month": 5, "day": 12, "$type": "com.linkedin.common.Date" },
+      "$type": "com.linkedin.voyager.dash.identity.profile.Profile"
+    }
+  ]
+}
