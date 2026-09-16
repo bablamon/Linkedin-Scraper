@@ -16,6 +16,7 @@ No browser, no login, no setup on your side. One HTTPS call.
 - [Field reference](#field-reference)
 - [Errors](#errors)
 - [Rate limits and recommended use](#rate-limits-and-recommended-use)
+- [Scaling up: proxies](#scaling-up-proxies)
 - [What's included and what isn't](#whats-included-and-what-isnt)
 - [Known limitations](#known-limitations)
 - [FAQ](#faq)
@@ -359,6 +360,70 @@ try request
 
 ---
 
+## Scaling up: proxies
+
+Both of this deployment's main constraints — the 2–3/day volume guidance and the
+minority of profiles that never succeed — come from the same root cause, and both
+are fixed by the same thing.
+
+### Why the limits exist
+
+The service currently runs from a **single server with one fixed IP address, in a
+datacenter**. LinkedIn treats requests from datacenter addresses far more
+suspiciously than requests from ordinary home/office connections. Two consequences:
+
+1. **Volume is capped per IP.** All traffic shares one address, so its reputation is
+   a shared budget. Push it and the success rate drops for everything.
+2. **Some profiles are unreachable from that address.** Well-known profiles are
+   served readily; lower-profile ones are much more likely to be refused.
+
+This has been verified directly: profiles that consistently fail from the server
+fetch successfully, first try, from an ordinary residential connection — same
+identifier, same moment, same request. Nothing about the profile is wrong. The
+difference is purely the network address the request comes from.
+
+### What proxies fix
+
+Adding **residential proxies** addresses both limits at once:
+
+| Constraint | Without proxies | With residential proxies |
+|---|---|---|
+| Volume | 2–3 profiles/day | Scales roughly per IP in the pool |
+| Lesser-known profiles | Often refused | Reliably reachable |
+| Well-known profiles | Work fine | Work fine |
+
+The service already supports this — proxies are configured, rotated automatically,
+and a proxy that starts getting refused is rested before being tried again. No code
+changes are needed; it's a configuration and subscription decision for the API owner.
+
+### Residential, not datacenter
+
+This distinction matters and is easy to get wrong when buying:
+
+- ✅ **Residential proxies** route through real consumer ISP connections. These are
+  what solve the problem.
+- ❌ **Datacenter proxies** are usually cheaper, but they're the *same category of
+  address* the server already has. They add IP rotation but not the credibility
+  that's missing, so they help much less — and may not help at all.
+
+If you're evaluating providers, "residential" or "mobile" is the tier to ask for.
+
+### Realistic expectations
+
+- Volume grows with the size of the proxy pool rather than being unlimited — each
+  address still has its own sustainable rate, and spacing requests still matters.
+- Residential proxies are billed by bandwidth or per IP and are meaningfully more
+  expensive than datacenter ones. A profile fetch is roughly 0.5–1 MB.
+- This won't unlock anything LinkedIn doesn't publish publicly. It improves *access
+  reliability*, not *scope* — contact details and the other items in the "not
+  included" list stay unavailable regardless.
+
+**If your use case needs more than a few profiles a day, or needs to reach ordinary
+(non-celebrity) profiles reliably, residential proxies are the prerequisite — talk
+to the API owner before planning around higher volume.**
+
+---
+
 ## What's included and what isn't
 
 ### Included
@@ -390,7 +455,12 @@ Worth understanding before you integrate.
 **1. Not every profile can be fetched.** A minority of profiles return `BLOCKED`
 consistently from this server, even though they are public and fetch fine from other
 networks. This is a property of the server's network address, not of the profile or
-of your request. There is no input change that fixes it.
+of your request. There is no input change that fixes it — see
+[Scaling up: proxies](#scaling-up-proxies) for what does.
+
+Rule of thumb: prominent profiles with large followings are reliably reachable;
+ordinary individual profiles are noticeably less so. If your use case is mostly the
+latter, read the proxies section before planning around it.
 
 **2. Results vary in completeness between people.** Two profiles can return very
 different amounts of detail, because members choose how much to publish publicly.
@@ -398,9 +468,9 @@ A sparse result usually reflects that choice, not a failed request. Check
 `meta.fields_found` and `meta.partial` to tell the difference.
 
 **3. Volume is genuinely limited.** The 2–3 per day guidance isn't arbitrary
-throttling — it's what this single-server, single-IP deployment sustains without
-its success rate degrading. Higher volume needs additional infrastructure; ask the
-API owner.
+throttling — it's what this single-server, single-IP deployment sustains without its
+success rate degrading. Higher volume needs residential proxies; see
+[Scaling up: proxies](#scaling-up-proxies).
 
 **4. Contact data is not available.** If your use case depends on emails or phone
 numbers, this API does not currently provide them.
@@ -427,7 +497,14 @@ Use `refresh=true` to force a live fetch.
 
 **Can I request more than 2–3 profiles a day?**
 The hard limit is 10/minute, so short bursts work. Sustained higher volume is what
-degrades reliability. Talk to the API owner about scaling.
+degrades reliability. Raising it properly needs residential proxies — see
+[Scaling up: proxies](#scaling-up-proxies).
+
+**A lot of the profiles I need are ordinary people, not public figures. Will that work?**
+Less reliably on the current setup. Prominent profiles are served readily; ordinary
+ones are refused more often from this server's address. Residential proxies are what
+makes them reliably reachable — worth raising with the API owner before you build
+around it.
 
 **What happens if I send a company URL?**
 `400 INVALID_URL`, with a message saying it's a company page rather than a member
