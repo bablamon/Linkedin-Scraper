@@ -99,8 +99,19 @@ class TestFetch:
             ]
         )
         await fetcher.fetch_profile("x")
-        cookies = [c["headers"]["cookie"] for c in transport.calls]
+        cookies = [c["cookies"]["li_gc"] for c in transport.calls]
         assert len(set(cookies)) == 3
+
+    async def test_seed_jar_reaches_the_transport_as_cookies_not_a_header(self, full_html):
+        # Regression: the jar must travel as `cookies` so curl_cffi merges the
+        # edge's own Set-Cookie (bcookie/bscookie/lidc/__cf_bm) into it. Sending
+        # a hand-built cookie header instead shadowed those and left every
+        # request cold, which LinkedIn's edge answers with 999.
+        fetcher, transport = make_fetcher([(200, "u", full_html)])
+        await fetcher.fetch_profile("x")
+        call = transport.calls[0]
+        assert "cookie" not in call["headers"]
+        assert set(call["cookies"]) == {"lang", "li_gc"}
 
     async def test_each_attempt_hits_a_different_host(self, authwall_html, full_html):
         fetcher, transport = make_fetcher(

@@ -46,7 +46,7 @@ class FakeTransport:
         self.script = list(script)
         self.calls: list[dict] = []
 
-    async def get(self, url, *, headers, impersonate, proxy, timeout):
+    async def get(self, url, *, headers, impersonate, proxy, timeout, cookies=None):
         self.calls.append(
             {
                 "url": url,
@@ -54,6 +54,7 @@ class FakeTransport:
                 "impersonate": impersonate,
                 "proxy": proxy,
                 "timeout": timeout,
+                "cookies": dict(cookies or {}),
             }
         )
         step = self.script.pop(0) if self.script else (200, url, "")

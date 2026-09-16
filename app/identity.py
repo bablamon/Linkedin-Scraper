@@ -36,22 +36,18 @@ _ACCEPT_LANGUAGES = (
 )
 
 def mint_cookies(*, consent: bool = True) -> dict[str, str]:
-    """Build a plausible fresh-visitor cookie jar with no network round-trip."""
-    now_ms = int(time.time() * 1000)
-    jar = {
-        # LinkedIn's browser id. Any well-formed v=2 UUID is accepted.
-        "bcookie": f'"v=2&{uuid.uuid4()}"',
-        "lang": '"v=2&lang=en-us"',
-        # Value doubles as the CSRF token on any /voyager call.
-        "JSESSIONID": f'"ajax:{random.randrange(10**18, 10**19)}"',
-        # Routing hint. Supplying one avoids an extra load-balancer redirect hop.
-        "lidc": (
-            f'"b=VGST00:s=V:r=V:a=V:p=V:g=3096:u=1:x=1:'
-            f'i={now_ms // 1000}:t={now_ms // 1000 + 86400}:s={random.randrange(10**18, 10**19)}"'
-        ),
-    }
+    """Seed jar for a fresh guest — client-side preferences only.
+
+    Deliberately narrow. `bcookie`, `bscookie`, `lidc` and Cloudflare's
+    `__cf_bm` are *issued by LinkedIn's edge* and are collected by the
+    transport's warm-up GET; fabricating them locally produced a session the
+    edge did not recognise, which it answered with 999. Only cookies a browser
+    genuinely sets for itself belong here.
+    """
+    jar = {"lang": '"v=2&lang=en-us"'}
     if consent:
         # Consent already granted, so the cookie banner interstitial is skipped.
+        now_ms = int(time.time() * 1000)
         raw = f"1;1;{now_ms};2;{uuid.uuid4().hex[:16]}"
         jar["li_gc"] = base64.b64encode(raw.encode()).decode().rstrip("=")
     return jar
@@ -73,10 +69,10 @@ class GuestIdentity:
     header_overrides: dict[str, str] = field(default_factory=dict)
 
     def headers(self) -> dict[str, str]:
-        h = {
-            "accept-language": self.accept_language,
-            "cookie": cookie_header(self.cookies),
-        }
+        # No `cookie` header: `cookies` is handed to the transport as a real jar
+        # so the edge's own Set-Cookie values merge in and win. A hand-built
+        # header would shadow them and keep every request cold.
+        h = {"accept-language": self.accept_language}
         if self.referer:
             h["referer"] = self.referer
         h.update(self.header_overrides)

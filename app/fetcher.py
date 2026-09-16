@@ -18,6 +18,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from urllib.parse import urlsplit
 
 from .errors import Blocked, ProfileNotFound, ScraperError, UpstreamError, UpstreamTimeout
 from .identity import GuestIdentity, new_identity
@@ -172,6 +173,7 @@ class Fetcher:
                     impersonate=identity.impersonate,
                     proxy=proxy,
                     timeout=timeout,
+                    cookies=identity.cookies,
                 )
             except UpstreamTimeout as exc:
                 self.proxy_pool.penalise(proxy)
@@ -218,19 +220,32 @@ class Fetcher:
 
 
 class _CurlTransport:
-    """curl_cffi in impersonation mode.
+    """curl_cffi in impersonation mode, over a cookie jar warmed against the edge.
 
-    The `impersonate` target is the load-bearing part: it reproduces Chrome's
-    ClientHello, cipher order, extension order and HTTP/2 SETTINGS. Headers alone
-    do not survive fingerprinting.
+    Two things are load-bearing here, and the second one was learned the hard way:
+
+    1. The `impersonate` target reproduces Chrome's ClientHello, cipher order,
+       extension order and HTTP/2 SETTINGS. Headers alone do not survive
+       fingerprinting.
+    2. The request must carry cookies LinkedIn's edge *issued*, not ones we made
+       up. A root GET returns bcookie, bscookie, lidc and — critically —
+       Cloudflare's `__cf_bm` bot-management token. A request without them is a
+       cold session, and the edge answers cold sessions with 999 far more often.
+       Measured: warming the jar flipped 8/8 otherwise-identical requests from
+       999 to 200. An earlier version of this file skipped the warm-up to save a
+       round-trip and called that an optimisation; it was the bug.
     """
 
-    async def get(self, url, *, headers, impersonate, proxy, timeout):
+    async def get(self, url, *, headers, impersonate, proxy, timeout, cookies=None):
         from curl_cffi.requests import AsyncSession
 
         proxies = {"http": proxy, "https": proxy} if proxy else None
+        origin = "{0.scheme}://{0.netloc}/".format(urlsplit(url))
         try:
-            async with AsyncSession() as session:
+            # One session for both calls, so Set-Cookie from the warm-up is
+            # replayed on the real request instead of being thrown away.
+            async with AsyncSession(cookies=dict(cookies or {})) as session:
+                await self._warm(session, origin, headers, impersonate, proxies, timeout)
                 response = await session.get(
                     url,
                     headers=headers,
@@ -247,3 +262,21 @@ class _CurlTransport:
             raise UpstreamError(detail=str(exc)[:200]) from exc
 
         return response.status_code, str(response.url), response.text
+
+    @staticmethod
+    async def _warm(session, origin, headers, impersonate, proxies, timeout):
+        """Collect the edge's own cookies. Never fatal: a failed warm-up just
+        means we proceed cold, exactly as the previous behaviour did."""
+        warm_headers = {k: v for k, v in headers.items() if k != "referer"}
+        try:
+            await session.get(
+                origin,
+                headers=warm_headers,
+                impersonate=impersonate,
+                proxies=proxies,
+                timeout=min(timeout, 10.0),
+                allow_redirects=True,
+                max_redirects=3,
+            )
+        except Exception:
+            pass

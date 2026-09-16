@@ -47,7 +47,16 @@ class RateLimited(ScraperError):
 class Blocked(ScraperError):
     status = 502
     code = "BLOCKED"
-    message = "LinkedIn served an authentication wall for every strategy tried."
+    # Deliberately says nothing about the profile. LinkedIn's 999 is a viewer-side
+    # edge deny: the response is byte-identical for a real profile, a private one
+    # and a slug that does not exist, so it carries no information about the
+    # target. Treat it as "we were refused", never as "that profile is walled".
+    message = (
+        "LinkedIn refused this request (HTTP 999 edge deny). This reflects our "
+        "egress reputation or session state, not the target profile — the same "
+        "response is returned for profiles that exist and ones that do not. "
+        "Retry, or route via a residential proxy."
+    )
 
 
 class UpstreamTimeout(ScraperError):

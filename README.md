@@ -45,14 +45,20 @@ jar — is the load-bearing dependency here. The impersonation target also owns 
 `User-Agent` and client-hint headers, so the code never sets them by hand; a
 Chrome 124 UA over a Chrome 120 handshake is a louder signal than either alone.
 
-**2. Guest cookies.** A real visitor already carries `bcookie`, `lang`,
-`JSESSIONID`, `lidc` and a consent cookie (`li_gc`). All five are minted locally
-with no bootstrap round-trip — LinkedIn accepts any well-formed value, and
-`JSESSIONID`'s value doubles as the CSRF token on `/voyager` calls. `bscookie` is
-deliberately **not** minted: it is server-signed, and a forged signature is a
-stronger bot signal than its absence on a first visit. A *fresh* identity per
-attempt matters, because the wall is driven largely by how many profiles a given
-guest has already viewed.
+**2. Guest cookies — and these must be *earned*, not invented.**
+Each attempt opens with a cheap GET to the edge root, and the profile request
+reuses that same session. LinkedIn's edge issues `bcookie`, `bscookie`, `lidc`
+and — critically — Cloudflare's `__cf_bm` bot-management token on that first
+call. Only genuinely client-side preferences (`lang`, the `li_gc` consent
+cookie) are set locally.
+
+> An earlier version of this scraper fabricated `bcookie`/`JSESSIONID`/`lidc`
+> locally and skipped the bootstrap round-trip, documenting that as an
+> optimisation. It was the central bug: the edge does not recognise an invented
+> session and answers it with `999`. Measured during diagnosis — warming the jar
+> flipped **8/8** otherwise-identical requests from `999` to `200`. Discarding
+> the edge's `Set-Cookie` between ladder rungs (a fresh `AsyncSession` per
+> request) meant all four rungs retried equally cold and learned nothing.
 
 **3. Provenance.** Each attempt arrives with a search-engine referer matched to
 its edge. LinkedIn is markedly more permissive with traffic it believes its own
@@ -323,6 +329,20 @@ Every failure returns `{"error": {"code", "message", "detail?"}}`.
 
 `BLOCKED` is the one to alert on: sustained `BLOCKED` means the egress IP is
 burnt and needs proxies or a cool-off, not a code change.
+
+**`BLOCKED` says nothing about the profile.** LinkedIn's `999` is a viewer-side
+edge deny, and the response body is *byte-identical* (1530 bytes,
+`md5 895d2a33`) whether the slug is a real public profile, a private one, or a
+string that was never a profile at all. Verified during diagnosis across three
+independent networks. So `BLOCKED` means only "we were refused" — never "that
+profile is walled", and never "that profile doesn't exist". Don't debug the
+target when you see it; debug the egress.
+
+Its corollary matters for benchmarking: **don't use celebrity profiles as your
+health check.** Ultra-high-traffic accounts (Gates, Nadella, Weiner) are served
+from a warm edge cache and succeed when everything else is being denied, so they
+will tell you the scraper is fine while ordinary profiles uniformly fail. Test
+with ordinary profiles, or you are measuring the cache, not the scraper.
 
 ---
 

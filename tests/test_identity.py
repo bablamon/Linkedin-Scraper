@@ -1,26 +1,21 @@
 from __future__ import annotations
 
 import base64
-import re
 
 from app.identity import cookie_header, mint_cookies, new_identity
 
 
-def test_mints_the_cookies_a_guest_would_carry():
+def test_seeds_only_client_side_preference_cookies():
+    # bcookie/bscookie/lidc/__cf_bm are issued by LinkedIn's edge and collected
+    # by the transport's warm-up GET. Fabricating them produced a session the
+    # edge did not recognise and answered with 999.
+    assert set(mint_cookies()) == {"lang", "li_gc"}
+
+
+def test_never_forges_edge_issued_cookies():
     jar = mint_cookies()
-    assert set(jar) == {"bcookie", "lang", "JSESSIONID", "lidc", "li_gc"}
-
-
-def test_bcookie_shape():
-    value = mint_cookies()["bcookie"]
-    assert re.fullmatch(
-        r'"v=2&[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"', value
-    )
-
-
-def test_jsessionid_is_the_ajax_form_used_as_csrf_token():
-    value = mint_cookies()["JSESSIONID"]
-    assert re.fullmatch(r'"ajax:\d{19}"', value)
+    for name in ("bcookie", "bscookie", "lidc", "JSESSIONID", "__cf_bm"):
+        assert name not in jar
 
 
 def test_li_gc_decodes_to_a_consent_record():
@@ -34,13 +29,8 @@ def test_consent_can_be_omitted():
     assert "li_gc" not in mint_cookies(consent=False)
 
 
-def test_bscookie_is_never_forged():
-    # It is server-signed; a bad signature is a louder bot signal than absence.
-    assert "bscookie" not in mint_cookies()
-
-
 def test_identities_are_unique_per_call():
-    jars = [mint_cookies()["bcookie"] for _ in range(50)]
+    jars = [mint_cookies()["li_gc"] for _ in range(50)]
     assert len(set(jars)) == 50
 
 
@@ -49,11 +39,15 @@ def test_cookie_header_format():
     assert header == "a=1; b=2"
 
 
-def test_identity_headers_include_cookie_and_locale():
-    headers = new_identity(referer="https://www.google.com/").headers()
-    assert "cookie" in headers and "bcookie=" in headers["cookie"]
+def test_identity_headers_carry_locale_and_referer_but_no_cookie_header():
+    identity = new_identity(referer="https://www.google.com/")
+    headers = identity.headers()
     assert headers["accept-language"]
     assert headers["referer"] == "https://www.google.com/"
+    # The jar goes to the transport as `cookies`, not as a hand-built header —
+    # a header would shadow the edge's Set-Cookie and keep every request cold.
+    assert "cookie" not in headers
+    assert identity.cookies["lang"]
 
 
 def test_identity_never_sets_user_agent_by_hand():
