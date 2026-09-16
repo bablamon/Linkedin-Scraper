@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     upstream_jitter_ms: int = 700
 
     # --- fetching ---
+    # curl_cffi impersonation personas, comma separated, chosen at random per
+    # attempt. Swap to e.g. "safari17_0,safari15_5" to change the whole TLS/UA
+    # persona without a rebuild. Empty = the built-in Chrome set.
+    impersonate_targets: str = ""
     request_timeout_s: float = 15.0
     total_timeout_s: float = 45.0
     max_attempts: int = 4

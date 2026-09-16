@@ -1,17 +1,19 @@
 """Synthetic guest identities.
 
 LinkedIn does not require authentication to render a public profile — it requires
-you to look like a first-time human visitor. Two things decide that:
+you to look like a first-time human visitor. This module supplies the two halves
+of that persona that are safe to construct locally:
 
-1. The cookie set a real browser would already be carrying. We mint these locally
-   rather than spending a round-trip bootstrapping them from linkedin.com.
-2. The TLS/HTTP2 fingerprint, which is handled by curl_cffi's `impersonate`
-   target, not by headers. A stock Python client is identifiable from the
-   ClientHello alone, long before any header is read — that, not a login, is what
-   actually walls off the page.
+1. A TLS/HTTP2 persona, via curl_cffi's `impersonate` target. It covers the
+   ClientHello and the matching UA/client hints together, so they can never
+   disagree.
+2. A seed cookie jar of genuine client-side preferences only (`lang`, `li_gc`).
 
-`bscookie` is deliberately *not* minted: it is server-signed, and an invalid
-signature is a stronger bot signal than its absence on a first visit.
+What this module deliberately does NOT do is invent session cookies. `bcookie`,
+`bscookie`, `lidc` and Cloudflare's `__cf_bm` are issued by LinkedIn's edge and
+are collected by the transport's warm-up GET. An earlier version fabricated them
+to save a round-trip; the edge does not recognise an invented session and
+answered it with 999. See _CurlTransport in fetcher.py for the other half.
 """
 
 from __future__ import annotations
@@ -22,11 +24,26 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-# curl_cffi impersonation targets paired with the Accept-Language a browser in
-# that locale would send. The target drives the JA3/JA4 and HTTP2 SETTINGS
-# fingerprint *and* the matching UA + client-hint headers, so we never set those
-# by hand — a Chrome 124 UA over a Chrome 120 handshake is worse than neither.
-_TARGETS = ("chrome124", "chrome123", "chrome120")
+from .config import settings
+
+# curl_cffi impersonation targets. The target drives the JA3/JA4 and HTTP2
+# SETTINGS fingerprint *and* the matching UA + client-hint headers, so we never
+# set those by hand — a Chrome 124 UA over a Chrome 120 handshake is worse than
+# neither.
+#
+# Configurable because it is a tuning knob worth experimenting with: set
+# IMPERSONATE_TARGETS to e.g. "safari17_0,safari15_5" to swap the whole persona
+# without a rebuild. Note the evidence so far says TLS is NOT the binding
+# constraint — stock curl with no impersonation fetched a profile this scraper
+# could not — so treat a change here as an experiment, not a fix.
+_DEFAULT_TARGETS = ("chrome124", "chrome123", "chrome120")
+
+
+def _targets() -> tuple[str, ...]:
+    configured = tuple(
+        t.strip() for t in (settings.impersonate_targets or "").split(",") if t.strip()
+    )
+    return configured or _DEFAULT_TARGETS
 
 _ACCEPT_LANGUAGES = (
     "en-US,en;q=0.9",
@@ -93,7 +110,7 @@ def new_identity(
     results page).
     """
     return GuestIdentity(
-        impersonate=random.choice(_TARGETS),
+        impersonate=random.choice(_targets()),
         accept_language=random.choice(_ACCEPT_LANGUAGES),
         referer=referer,
         cookies=mint_cookies(consent=consent),

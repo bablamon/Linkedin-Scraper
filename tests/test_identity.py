@@ -71,3 +71,20 @@ def test_impersonation_target_is_a_real_chrome_build():
     targets = {new_identity(referer=None).impersonate for _ in range(40)}
     assert targets
     assert all(t.startswith("chrome") for t in targets)
+
+
+def test_impersonation_targets_are_configurable(monkeypatch):
+    # A tuning knob for experiments like "does Safari behave differently?" —
+    # swappable via IMPERSONATE_TARGETS without a rebuild.
+    from app import identity
+
+    monkeypatch.setattr(identity.settings, "impersonate_targets", "safari17_0,safari15_5")
+    assert set(identity._targets()) == {"safari17_0", "safari15_5"}
+    assert new_identity(referer=None).impersonate.startswith("safari")
+
+
+def test_impersonation_falls_back_to_chrome_when_unset(monkeypatch):
+    from app import identity
+
+    monkeypatch.setattr(identity.settings, "impersonate_targets", "")
+    assert all(t.startswith("chrome") for t in identity._targets())
