@@ -203,3 +203,24 @@ class TestProxyInteraction:
     async def test_direct_connection_is_reported_as_such(self, full_html):
         fetcher, _ = make_fetcher([(200, "u", full_html)])
         assert (await fetcher.fetch_profile("x")).proxy_used is False
+
+
+class TestPersonaDiversity:
+    """Persona is the strongest measured lever: with a warm jar, Chrome was
+    denied 6/6 while Safari/Firefox succeeded 6/6 on identical cookies and
+    headers. The ladder must therefore not spend every rung on one persona."""
+
+    def test_rungs_use_distinct_personas(self):
+        personas = [s.impersonate for s in build_ladder() if s.impersonate]
+        assert len(personas) == len(set(personas))
+
+    def test_leads_with_the_personas_that_measured_best(self):
+        ladder = build_ladder()
+        assert ladder[0].impersonate.startswith("safari")
+        assert ladder[1].impersonate.startswith("firefox")
+
+    def test_configured_pool_overrides_the_pinned_personas(self, monkeypatch):
+        from app import identity
+
+        monkeypatch.setattr(identity.settings, "impersonate_targets", "safari180")
+        assert identity.new_identity(referer=None).impersonate == "safari180"

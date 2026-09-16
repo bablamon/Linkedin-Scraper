@@ -101,6 +101,7 @@ def new_identity(
     referer: str | None,
     header_overrides: dict[str, str] | None = None,
     consent: bool = True,
+    impersonate: str | None = None,
 ) -> GuestIdentity:
     """A brand-new guest. Rotating per attempt resets LinkedIn's per-visitor
     profile-view counter, which is what triggers the wall for repeat guests.
@@ -110,7 +111,7 @@ def new_identity(
     results page).
     """
     return GuestIdentity(
-        impersonate=random.choice(_targets()),
+        impersonate=impersonate or random.choice(_targets()),
         accept_language=random.choice(_ACCEPT_LANGUAGES),
         referer=referer,
         cookies=mint_cookies(consent=consent),

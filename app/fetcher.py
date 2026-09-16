@@ -6,9 +6,15 @@ first-time visitors, because LinkedIn wants it indexed. What gets you walled is
 looking like automation: a Python TLS handshake, a stale guest cookie that has
 already viewed N profiles, or arriving with no referring search engine.
 
-So each attempt presents a brand-new visitor (fresh minted cookies, fresh TLS
-persona, fresh search referer) against a different LinkedIn edge, escalating only
-as far as it needs to. No credentials are used or required at any point.
+So each attempt presents a brand-new visitor against a different LinkedIn edge,
+escalating only as far as it needs to. No credentials are used or required at
+any point.
+
+Rungs differ in TLS persona as well as edge, because persona turned out to be
+the strongest lever measured: with a warmed cookie jar, Chrome personas were
+denied 6/6 while Safari and Firefox succeeded 6/6 under otherwise identical
+conditions — same cookies, same headers, same IP. So the ladder covers the
+persona space deliberately rather than leaving it to chance.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlsplit
 
+from .config import settings
 from .errors import Blocked, ProfileNotFound, ScraperError, UpstreamError, UpstreamTimeout
 from .identity import GuestIdentity, new_identity
 from .urls import canonical_url
@@ -47,11 +54,16 @@ class Strategy:
     host: str
     referer: str | None = None
     header_overrides: dict[str, str] = field(default_factory=dict)
+    # Pinned rather than random: persona is the strongest single lever we
+    # measured, so the ladder spends its rungs covering the persona space
+    # deliberately instead of possibly drawing the same one four times.
+    impersonate: str | None = None
 
     def build_identity(self) -> GuestIdentity:
         return new_identity(
             referer=self.referer,
             header_overrides=self.header_overrides,
+            impersonate=self.impersonate,
         )
 
 
@@ -65,9 +77,16 @@ def build_ladder() -> list[Strategy]:
     """
     rotating = random.choice(_COUNTRY_HOSTS[1:])
     return [
-        Strategy("fr_guest", "fr.linkedin.com", "https://www.google.fr/"),
-        Strategy("www_guest", "www.linkedin.com", "https://www.google.com/"),
-        Strategy("intl_guest", rotating, "https://www.bing.com/"),
+        # Safari and Firefox lead because they measured 100% across every
+        # condition tested (cold and warm jar, two profiles, ~28 requests),
+        # while Chrome failed 0/6 whenever the jar was warm. Chrome is kept as a
+        # later rung — it is fine cold, and persona diversity is the point.
+        Strategy("fr_guest", "fr.linkedin.com", "https://www.google.fr/",
+                 impersonate="safari180"),
+        Strategy("www_guest", "www.linkedin.com", "https://www.google.com/",
+                 impersonate="firefox144"),
+        Strategy("intl_guest", rotating, "https://www.bing.com/",
+                 impersonate="chrome150"),
         # Last resort: LinkedIn keeps public profiles readable for search
         # crawlers. We cannot pass reverse-DNS verification, so this only helps
         # on edges that check the UA alone — cheap to try, never relied upon.
@@ -242,10 +261,11 @@ class _CurlTransport:
         proxies = {"http": proxy, "https": proxy} if proxy else None
         origin = "{0.scheme}://{0.netloc}/".format(urlsplit(url))
         try:
-            # One session for both calls, so Set-Cookie from the warm-up is
-            # replayed on the real request instead of being thrown away.
+            # One session throughout, so any Set-Cookie is replayed rather than
+            # thrown away. The warm-up itself is opt-in — see warm_cookie_jar.
             async with AsyncSession(cookies=dict(cookies or {})) as session:
-                await self._warm(session, origin, headers, impersonate, proxies, timeout)
+                if settings.warm_cookie_jar:
+                    await self._warm(session, origin, headers, impersonate, proxies, timeout)
                 response = await session.get(
                     url,
                     headers=headers,

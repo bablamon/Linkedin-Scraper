@@ -25,10 +25,15 @@ class Settings(BaseSettings):
     upstream_jitter_ms: int = 700
 
     # --- fetching ---
-    # curl_cffi impersonation personas, comma separated, chosen at random per
-    # attempt. Swap to e.g. "safari17_0,safari15_5" to change the whole TLS/UA
-    # persona without a rebuild. Empty = the built-in Chrome set.
+    # Overrides the ladder's per-rung personas with a comma-separated pool
+    # chosen at random. Empty = the built-in per-rung assignment, which is
+    # deliberately persona-diverse and is what the measurements support.
     impersonate_targets: str = ""
+    # Fetch the edge root first to collect its cookies before the profile
+    # request. Measured OFF: a cold jar succeeded 12/12 across all personas,
+    # while a warm jar broke Chrome 6/6. Left as a knob because the datacenter
+    # egress may behave differently from the residential vantage it was tested on.
+    warm_cookie_jar: bool = False
     request_timeout_s: float = 15.0
     total_timeout_s: float = 45.0
     max_attempts: int = 4
