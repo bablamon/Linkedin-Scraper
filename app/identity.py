@@ -110,8 +110,14 @@ def new_identity(
     None genuinely means "send none" (Googlebot does not arrive via a search
     results page).
     """
+    # An explicitly configured pool always wins, so a deployment can be retuned
+    # from env alone. A rung's pinned persona is only a default.
+    configured = tuple(
+        t.strip() for t in (settings.impersonate_targets or "").split(",") if t.strip()
+    )
     return GuestIdentity(
-        impersonate=impersonate or random.choice(_targets()),
+        impersonate=random.choice(configured) if configured
+        else (impersonate or random.choice(_DEFAULT_TARGETS)),
         accept_language=random.choice(_ACCEPT_LANGUAGES),
         referer=referer,
         cookies=mint_cookies(consent=consent),

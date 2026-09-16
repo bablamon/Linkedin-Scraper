@@ -77,16 +77,16 @@ def build_ladder() -> list[Strategy]:
     """
     rotating = random.choice(_COUNTRY_HOSTS[1:])
     return [
-        # Safari and Firefox lead because they measured 100% across every
-        # condition tested (cold and warm jar, two profiles, ~28 requests),
-        # while Chrome failed 0/6 whenever the jar was warm. Chrome is kept as a
-        # later rung — it is fine cold, and persona diversity is the point.
-        Strategy("fr_guest", "fr.linkedin.com", "https://www.google.fr/",
-                 impersonate="safari180"),
-        Strategy("www_guest", "www.linkedin.com", "https://www.google.com/",
-                 impersonate="firefox144"),
-        Strategy("intl_guest", rotating, "https://www.bing.com/",
-                 impersonate="chrome150"),
+        # Personas are left to the configured pool rather than pinned per rung.
+        # Pinning safari/firefox was measured as clearly better from a
+        # residential IP — and clearly worse from this datacenter one, where it
+        # pushed every lookup down to the crawler rung (~6.3s instead of ~1.0s,
+        # four upstream hits instead of one). The two egresses are in opposite
+        # regimes, so the deployment's own evidence wins. Override per
+        # environment with IMPERSONATE_TARGETS.
+        Strategy("fr_guest", "fr.linkedin.com", "https://www.google.fr/"),
+        Strategy("www_guest", "www.linkedin.com", "https://www.google.com/"),
+        Strategy("intl_guest", rotating, "https://www.bing.com/"),
         # Last resort: LinkedIn keeps public profiles readable for search
         # crawlers. We cannot pass reverse-DNS verification, so this only helps
         # on edges that check the UA alone — cheap to try, never relied upon.

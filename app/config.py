@@ -30,10 +30,11 @@ class Settings(BaseSettings):
     # deliberately persona-diverse and is what the measurements support.
     impersonate_targets: str = ""
     # Fetch the edge root first to collect its cookies before the profile
-    # request. Measured OFF: a cold jar succeeded 12/12 across all personas,
-    # while a warm jar broke Chrome 6/6. Left as a knob because the datacenter
-    # egress may behave differently from the residential vantage it was tested on.
-    warm_cookie_jar: bool = False
+    # request. ON because that is what the deployed datacenter egress rewards:
+    # with it, lookups resolve on the first rung in ~1.0s. A residential vantage
+    # measured the opposite (cold jar better, warm jar broke Chrome 6/6), so
+    # this is genuinely environment-dependent — measure before flipping it.
+    warm_cookie_jar: bool = True
     request_timeout_s: float = 15.0
     total_timeout_s: float = 45.0
     max_attempts: int = 4

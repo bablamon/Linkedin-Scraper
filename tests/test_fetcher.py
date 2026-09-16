@@ -205,22 +205,24 @@ class TestProxyInteraction:
         assert (await fetcher.fetch_profile("x")).proxy_used is False
 
 
-class TestPersonaDiversity:
-    """Persona is the strongest measured lever: with a warm jar, Chrome was
-    denied 6/6 while Safari/Firefox succeeded 6/6 on identical cookies and
-    headers. The ladder must therefore not spend every rung on one persona."""
+class TestPersonaConfiguration:
+    """Persona is environment-dependent: pinning safari/firefox measured better
+    from a residential IP and worse from the deployed datacenter one, where it
+    forced every lookup onto the crawler rung. So the ladder leaves personas to
+    the configured pool, and env config is authoritative."""
 
-    def test_rungs_use_distinct_personas(self):
-        personas = [s.impersonate for s in build_ladder() if s.impersonate]
-        assert len(personas) == len(set(personas))
+    def test_ladder_does_not_pin_personas_by_default(self):
+        assert all(s.impersonate is None for s in build_ladder())
 
-    def test_leads_with_the_personas_that_measured_best(self):
-        ladder = build_ladder()
-        assert ladder[0].impersonate.startswith("safari")
-        assert ladder[1].impersonate.startswith("firefox")
-
-    def test_configured_pool_overrides_the_pinned_personas(self, monkeypatch):
+    def test_configured_pool_is_authoritative(self, monkeypatch):
         from app import identity
 
         monkeypatch.setattr(identity.settings, "impersonate_targets", "safari180")
-        assert identity.new_identity(referer=None).impersonate == "safari180"
+        # Wins even over a rung that pins its own persona.
+        assert identity.new_identity(referer=None, impersonate="chrome124").impersonate == "safari180"
+
+    def test_falls_back_to_the_default_pool_when_unset(self, monkeypatch):
+        from app import identity
+
+        monkeypatch.setattr(identity.settings, "impersonate_targets", "")
+        assert identity.new_identity(referer=None).impersonate.startswith("chrome")
