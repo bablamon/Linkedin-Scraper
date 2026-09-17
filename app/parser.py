@@ -33,6 +33,8 @@ from .models import (
 from .urls import canonical_url
 
 _WS_RE = re.compile(r"\s+")
+# Mask/placeholder tokens LinkedIn uses for redacted guest fields.
+_MASK_STRIP_RE = re.compile(r"(?:undefined|[*•·�\s\-–—])+", re.IGNORECASE)
 # Gate and error pages put their own copy in the same <h1>/<title> slots a
 # profile uses. Without this guard a missed classification turns "Join LinkedIn"
 # into a person's name, which is worse than returning nothing.
@@ -71,10 +73,12 @@ def _clean(value: str | None) -> str | None:
     text = _WS_RE.sub(" ", value.replace(" ", " ")).strip()
     if not text:
         return None
-    # LinkedIn redacts some fields for guests by replacing the characters with
-    # asterisks ("*** ******" where a job title would be). Returning the mask is
-    # worse than returning nothing — it looks like real data to a caller.
-    if text.replace("*", "").replace("•", "").strip() == "":
+    # LinkedIn masks fields it withholds from guests, and the mask must never be
+    # returned as data. Seen live: asterisks ("*** ******"), the U+FFFD
+    # replacement char, a literal "-", and JS "undefined" placeholders. Null the
+    # string only if nothing survives stripping the mask tokens — real values
+    # keep letters/digits, so a date like "Jan 2023 · 1 yr" is untouched.
+    if _MASK_STRIP_RE.sub("", text) == "":
         return None
     return text
 
@@ -341,8 +345,28 @@ def _cards(tree: HTMLParser, selectors: Iterable[str]) -> list[Node]:
     return []
 
 
+def _is_blurred(node: Node) -> bool:
+    """A card is a redacted teaser if it sits under a `blurred-content` /
+    `blurred-list` wrapper. (The outer `blurred-overlay` wraps the *whole*
+    section, visible cards included, so it is not the right signal.)"""
+    cur = node.parent
+    for _ in range(6):
+        if cur is None:
+            return False
+        cls = cur.attributes.get("class") or ""
+        if "blurred-content" in cls or "blurred-list" in cls:
+            return True
+        cur = cur.parent
+    return False
+
+
 def _modern_sections(tree: HTMLParser) -> dict[str, list[Node]]:
-    """Group `profile-section-card` items by their section heading."""
+    """Group visible `profile-section-card` items by their section heading.
+
+    Blurred teaser cards are dropped: LinkedIn fills them with masked
+    placeholder text (asterisks, U+FFFD, "undefined"), not the real values, so
+    they carry nothing a caller wants.
+    """
     out: dict[str, list[Node]] = {}
     for tnode in tree.css(", ".join(_SECTION_TITLE_SEL)):
         heading = (_node_text(tnode) or "").lower()
@@ -356,6 +380,7 @@ def _modern_sections(tree: HTMLParser) -> dict[str, list[Node]]:
             if cards:
                 break
             container = container.parent
+        cards = [c for c in cards if not _is_blurred(c)]
         if cards and heading not in out:
             out[heading] = cards
     return out
@@ -605,6 +630,15 @@ _RICH_FIELDS = ("experience", "education", "certifications", "languages")
 _PARTIAL_BELOW = 5
 
 
+def _entry_has_content(entry: Any) -> bool:
+    """An experience/education row is worth keeping only if a meaningful field
+    survived mask-stripping — not just an empty shell of nulls."""
+    for attr in ("title", "company", "school"):
+        if getattr(entry, attr, None):
+            return True
+    return False
+
+
 def _is_populated(value: Any) -> bool:
     """An empty Location() is still an object, so truthiness alone would lie."""
     if value is None:
@@ -685,11 +719,24 @@ def parse_profile(html: str, slug: str, source_url: str) -> dict:
     for layer in (_og_fallback(tree), _dom_sections(tree), _dom_topcard(tree)):
         merged.update({k: v for k, v in layer.items() if v})
 
+    # Drop DOM entries left empty once masked fields were nulled.
+    for key in ("experience", "education"):
+        kept = [e for e in merged.get(key, []) if _entry_has_content(e)]
+        if kept:
+            merged[key] = kept
+        else:
+            merged.pop(key, None)
+
     person = extract_jsonld_person(tree)
     if person:
         for key, value in _from_jsonld(person).items():
-            # JSON-LD wins on identity, but never replaces a richer DOM list.
-            if key in ("experience", "education", "languages", "honors") and merged.get(key):
+            # JSON-LD wins on identity. For the guest experience/education teaser
+            # it is often the *fuller* source (all employers, name-only), so keep
+            # whichever source carries more entries rather than always the DOM.
+            if key in ("experience", "education"):
+                if len(merged.get(key) or []) >= len(value or []):
+                    continue
+            elif key in ("languages", "honors") and merged.get(key):
                 continue
             if key == "location" and isinstance(merged.get("location"), Location):
                 existing = merged["location"]

@@ -325,17 +325,19 @@ class TestModernGuestLayout:
         html = (Path(__file__).parent / "fixtures" / "profile_guest_modern.html").read_text(encoding="utf-8")
         return parse_profile(html, "mathis-vella", "https://fr.linkedin.com/in/mathis-vella")
 
-    def test_experience_titles_and_companies_are_extracted(self):
+    def test_visible_experience_is_extracted(self):
         exp = self._load()["experience"]
-        titled = [e for e in exp if e.title]
-        assert len(titled) == 2, "both the visible and blurred-teaser roles should parse"
-        assert titled[0].title == "Software Engineer"
-        assert titled[0].company == "Heep"
+        assert exp[0].title == "Software Engineer"
+        assert exp[0].company == "Heep"
 
-    def test_blurred_teaser_text_is_still_read(self):
-        # LinkedIn CSS-blurs the second role, but the text is in the HTML.
+    def test_masked_blurred_teaser_is_dropped_not_returned_as_garbage(self):
+        # LinkedIn fills blurred cards with mask placeholders (***, U+FFFD,
+        # "undefined"), not hidden text. Those must never surface as a row.
         exp = self._load()["experience"]
-        assert any(e.title == "Software Engineering Intern" for e in exp)
+        assert len(exp) == 1, "only the one visible role should survive"
+        for e in exp:
+            assert "*" not in (e.title or "") and "�" not in (e.company or "")
+            assert "undefined" not in ((e.dates.raw or "").lower())
 
     def test_dates_are_pulled_from_the_blurred_paragraph(self):
         first = self._load()["experience"][0]
