@@ -313,3 +313,48 @@ class TestRedactionMasks:
             "</section></body></html>"
         )
         assert parse_profile(html, "x", "u")["headline"] == "Engineer at ****"
+
+
+class TestModernGuestLayout:
+    """Current guest markup: unified `profile-section-card` items scoped only by
+    an English section heading, title/company in bare h3/h4, date in a blurred
+    <p>. Verified against a live capture of a real profile."""
+
+    def _load(self):
+        from pathlib import Path
+        html = (Path(__file__).parent / "fixtures" / "profile_guest_modern.html").read_text(encoding="utf-8")
+        return parse_profile(html, "mathis-vella", "https://fr.linkedin.com/in/mathis-vella")
+
+    def test_experience_titles_and_companies_are_extracted(self):
+        exp = self._load()["experience"]
+        titled = [e for e in exp if e.title]
+        assert len(titled) == 2, "both the visible and blurred-teaser roles should parse"
+        assert titled[0].title == "Software Engineer"
+        assert titled[0].company == "Heep"
+
+    def test_blurred_teaser_text_is_still_read(self):
+        # LinkedIn CSS-blurs the second role, but the text is in the HTML.
+        exp = self._load()["experience"]
+        assert any(e.title == "Software Engineering Intern" for e in exp)
+
+    def test_dates_are_pulled_from_the_blurred_paragraph(self):
+        first = self._load()["experience"][0]
+        assert first.dates.start == "Jan 2023"
+        assert first.dates.current is True
+        assert first.dates.duration == "1 yr 8 mos"
+
+    def test_experience_location_captured(self):
+        assert self._load()["experience"][0].location == "Paris, France"
+
+    def test_education_parsed_from_the_same_card_shape(self):
+        edu = self._load()["education"]
+        assert edu[0].school == "École 42"
+        assert edu[0].dates.start == "2019"
+
+    def test_current_role_derived(self):
+        data = self._load()
+        assert data["current_title"] == "Software Engineer"
+        assert data["current_company"] == "Heep"
+
+    def test_not_marked_partial(self):
+        assert self._load()["_partial"] is False

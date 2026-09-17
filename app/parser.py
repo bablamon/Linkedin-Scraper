@@ -313,6 +313,25 @@ _DESC_SELECTORS = (
 )
 _META_SELECTORS = (".experience-item__meta-item", ".profile-section-card__meta-item")
 
+# Current guest layout: every section item is a `li.profile-section-card`, told
+# apart only by its section heading, with title/company in bare h3/h4 and the
+# date in a `<p>` (often class="blur" — LinkedIn CSS-blurs the teaser, but the
+# text is still in the HTML). Headings come back in English even on country
+# subdomains when Accept-Language is en, but a few localisations are matched too.
+_SECTION_TITLE_SEL = (".core-section-container__title", ".section-title")
+_SECTION_HEADINGS = {
+    "experience": ("experience", "expérience", "erfahrung", "experiencia"),
+    "education": ("education", "formation", "éducation", "ausbildung", "educación"),
+    "certifications": ("licens", "certif", "zertifi"),
+    "languages": ("language", "langue", "sprache", "idioma"),
+    "volunteering": ("volunteer", "bénévol", "ehrenamt", "voluntariado"),
+    "projects": ("project", "projet", "projekt", "proyecto"),
+    "publications": ("publication",),
+    "honors": ("honor", "award", "distinction", "auszeichnung"),
+    "courses": ("course", "cours", "kurs"),
+}
+_DATE_HINT_RE = re.compile(r"(?:19|20)\d{2}|present|présent|heute|actualidad", re.I)
+
 
 def _cards(tree: HTMLParser, selectors: Iterable[str]) -> list[Node]:
     for selector in selectors:
@@ -322,13 +341,54 @@ def _cards(tree: HTMLParser, selectors: Iterable[str]) -> list[Node]:
     return []
 
 
+def _modern_sections(tree: HTMLParser) -> dict[str, list[Node]]:
+    """Group `profile-section-card` items by their section heading."""
+    out: dict[str, list[Node]] = {}
+    for tnode in tree.css(", ".join(_SECTION_TITLE_SEL)):
+        heading = (_node_text(tnode) or "").lower()
+        if not heading:
+            continue
+        container, cards = tnode.parent, []
+        for _ in range(4):  # climb to the container that holds the cards
+            if container is None:
+                break
+            cards = container.css("li.profile-section-card")
+            if cards:
+                break
+            container = container.parent
+        if cards and heading not in out:
+            out[heading] = cards
+    return out
+
+
+def _section_cards(tree: HTMLParser, modern: dict, key: str) -> list[Node]:
+    """Current layout first (by heading), else the legacy per-section selectors."""
+    for keyword in _SECTION_HEADINGS.get(key, ()):
+        for heading, cards in modern.items():
+            if keyword in heading:
+                return cards
+    return _cards(tree, _SECTION_SELECTORS[key])
+
+
 def _card_parts(node: Node) -> dict:
     link = node.css_first("a[href]")
     meta_items = [t for t in (_node_text(n) for n in node.css(",".join(_META_SELECTORS))) if t]
+    date = _first_text(node, _DATE_SELECTORS)
+
+    # Fall back to the card's own text lines when the legacy selectors miss —
+    # the date is a bare/blurred <p> and the location another one.
+    lines = None
+    if not date or not meta_items:
+        lines = [t for t in (_node_text(n) for n in node.css("p, span, time")) if t]
+    if not date and lines:
+        date = next((t for t in lines if _DATE_HINT_RE.search(t)), None)
+    if not meta_items and lines:
+        meta_items = [t for t in lines if t != date]
+
     return {
         "title": _first_text(node, _TITLE_SELECTORS),
         "subtitle": _first_text(node, _SUBTITLE_SELECTORS),
-        "date": _first_text(node, _DATE_SELECTORS),
+        "date": date,
         "description": _first_text(node, _DESC_SELECTORS),
         "url": _clean(link.attributes.get("href")) if link is not None else None,
         "meta": meta_items,
@@ -346,9 +406,10 @@ def _split_degree(subtitle: str | None) -> tuple[str | None, str | None]:
 
 def _dom_sections(tree: HTMLParser) -> dict:
     out: dict[str, Any] = {}
+    modern = _modern_sections(tree)
 
     experience = []
-    for node in _cards(tree, _SECTION_SELECTORS["experience"]):
+    for node in _section_cards(tree, modern, "experience"):
         parts = _card_parts(node)
         if not (parts["title"] or parts["subtitle"]):
             continue
@@ -367,7 +428,7 @@ def _dom_sections(tree: HTMLParser) -> dict:
         out["experience"] = experience
 
     education = []
-    for node in _cards(tree, _SECTION_SELECTORS["education"]):
+    for node in _section_cards(tree, modern, "education"):
         parts = _card_parts(node)
         if not parts["title"]:
             continue
@@ -386,7 +447,7 @@ def _dom_sections(tree: HTMLParser) -> dict:
         out["education"] = education
 
     certifications = []
-    for node in _cards(tree, _SECTION_SELECTORS["certifications"]):
+    for node in _section_cards(tree, modern, "certifications"):
         parts = _card_parts(node)
         if not parts["title"]:
             continue
@@ -402,7 +463,7 @@ def _dom_sections(tree: HTMLParser) -> dict:
         out["certifications"] = certifications
 
     languages = []
-    for node in _cards(tree, _SECTION_SELECTORS["languages"]):
+    for node in _section_cards(tree, modern, "languages"):
         parts = _card_parts(node)
         if parts["title"]:
             languages.append(Language(name=parts["title"], proficiency=parts["subtitle"]))
@@ -411,7 +472,7 @@ def _dom_sections(tree: HTMLParser) -> dict:
 
     for key in ("volunteering", "projects", "publications", "honors", "courses"):
         items = []
-        for node in _cards(tree, _SECTION_SELECTORS[key]):
+        for node in _section_cards(tree, modern, key):
             parts = _card_parts(node)
             if not parts["title"]:
                 continue
