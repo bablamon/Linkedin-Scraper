@@ -278,7 +278,10 @@ class _CurlTransport:
                     proxies=proxies,
                     timeout=timeout,
                     allow_redirects=True,
-                    max_redirects=5,
+                    # Voyager bounces a request between load-balancer hosts to
+                    # get `lidc` accepted before serving it; 5 hops was not
+                    # always enough and surfaced as TooManyRedirects.
+                    max_redirects=20,
                 )
         except Exception as exc:  # curl_cffi raises version-specific classes
             message = str(exc).lower()
