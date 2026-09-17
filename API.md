@@ -426,25 +426,40 @@ to the API owner before planning around higher volume.**
 
 ## What's included and what isn't
 
-### Included
+This API reads the **public (logged-out) view** of a profile. LinkedIn shows a
+logged-out visitor a *teaser*: identity and employers in full, but only a
+preview of the detailed history, with the rest masked server-side. What you get
+therefore falls into two tiers.
+
+### Always available (for any reachable profile)
 
 Name · first/last name · headline · location (city, region, country) · about
 section · profile photo · banner image · follower count · connection count ·
-current company and title · **full experience history** (title, company, company
-URL, location, description, start/end dates, duration) · **education** (school,
-degree, field of study, dates) · certifications · languages · volunteering ·
-projects · publications · honours · courses · related profiles
+**current company** · **the full list of employers** (company names) ·
+certifications · languages · related profiles
 
-### Not included
+### Available only when the member exposes it publicly
+
+| Field | Note |
+|---|---|
+| Experience **titles, dates, descriptions** | Present for the roles LinkedIn shows in the public preview. On heavily-restricted profiles this may be only the current role; the remaining employers still appear by name in the always-available list above |
+| Education detail (degree, field, dates) | Same — shown when public, masked otherwise |
+| Volunteering, projects, publications, honours, courses | Shown when the member publishes them publicly |
+
+The response tells you which tier you got: `meta.fields_found` (0–9) and
+`meta.partial`. A thin result means the member restricted their public view, not
+that the request failed.
+
+### Never available
 
 | Not available | Why |
 |---|---|
-| Email addresses, phone numbers, contact details | Requires an authenticated LinkedIn session. See `/contact` |
-| Skills and endorsements | Not on the public profile |
-| Connection lists, mutual connections | Not on the public profile |
-| Recommendation text | Not on the public profile |
-| Posts and activity feed | Not on the public profile |
-| Anything the profile owner restricted | Respects the member's privacy settings |
+| Email addresses, phone numbers, contact details | Not in the public view at all |
+| Skills and endorsements | Not in the public view |
+| Connection lists, mutual connections | Not in the public view |
+| Recommendation text | Not in the public view |
+| Posts and activity feed | Not in the public view |
+| Anything the member masked or restricted | Masked server-side by LinkedIn; not in the HTML, so unrecoverable by any means |
 
 ---
 
@@ -452,20 +467,19 @@ projects · publications · honours · courses · related profiles
 
 Worth understanding before you integrate.
 
-**1. Not every profile can be fetched.** A minority of profiles return `BLOCKED`
-consistently from this server, even though they are public and fetch fine from other
-networks. This is a property of the server's network address, not of the profile or
-of your request. There is no input change that fixes it — see
-[Scaling up: proxies](#scaling-up-proxies) for what does.
+**1. Reaching arbitrary profiles requires residential proxies.** From a plain
+datacenter IP, LinkedIn blocks the public view of ordinary profiles (only very
+prominent ones get through). Routing requests through **residential** proxies
+makes them look like ordinary visitors and unblocks arbitrary profiles — this is
+configured and working. Datacenter proxies do **not** help; the tier matters. See
+[Scaling up: proxies](#scaling-up-proxies).
 
-Rule of thumb: prominent profiles with large followings are reliably reachable;
-ordinary individual profiles are noticeably less so. If your use case is mostly the
-latter, read the proxies section before planning around it.
-
-**2. Results vary in completeness between people.** Two profiles can return very
-different amounts of detail, because members choose how much to publish publicly.
-A sparse result usually reflects that choice, not a failed request. Check
-`meta.fields_found` and `meta.partial` to tell the difference.
+**2. Detail varies between people, and can be sparse.** LinkedIn shows a
+logged-out visitor a teaser (see [What's included](#whats-included-and-what-isnt)).
+Some members expose their full history publicly; others expose only their current
+role, with the rest masked. A sparse result reflects that member's choice, not a
+failed request — `meta.fields_found` and `meta.partial` tell you which. Identity
+and the employer list come back for everyone; full per-role detail does not.
 
 **3. Volume is genuinely limited.** The 2–3 per day guidance isn't arbitrary
 throttling — it's what this single-server, single-IP deployment sustains without its
@@ -501,10 +515,15 @@ degrades reliability. Raising it properly needs residential proxies — see
 [Scaling up: proxies](#scaling-up-proxies).
 
 **A lot of the profiles I need are ordinary people, not public figures. Will that work?**
-Less reliably on the current setup. Prominent profiles are served readily; ordinary
-ones are refused more often from this server's address. Residential proxies are what
-makes them reliably reachable — worth raising with the API owner before you build
-around it.
+Yes — reaching them is handled by the residential proxies this deployment uses.
+What varies is *detail*, not access: you always get identity, location and the
+employer list; full per-role experience depends on how much each person exposes
+publicly (see [What's included](#whats-included-and-what-isnt)).
+
+**Why did one profile come back with almost no experience detail?**
+That member restricted their public view — LinkedIn shows logged-out visitors
+only a preview and masks the rest. It's not an error; `meta.partial` will be
+`true`. You still get their name, location and employers.
 
 **What happens if I send a company URL?**
 `400 INVALID_URL`, with a message saying it's a company page rather than a member
