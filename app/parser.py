@@ -34,6 +34,7 @@ from .urls import canonical_url
 
 _WS_RE = re.compile(r"\s+")
 # Mask/placeholder tokens LinkedIn uses for redacted guest fields.
+_MASK_RUN_RE = re.compile(r"[*•·█�░▒▓]{2,}")
 _MASK_STRIP_RE = re.compile(r"(?:undefined|[*•·�\s\-–—])+", re.IGNORECASE)
 # Gate and error pages put their own copy in the same <h1>/<title> slots a
 # profile uses. Without this guard a missed classification turns "Join LinkedIn"
@@ -79,8 +80,10 @@ def _clean(value: str | None) -> str | None:
     # each one, strip the known mask tokens and require at least one real
     # alphanumeric to survive. Real values always do; a mask never does. Dates
     # like "Jan 2023 · 1 yr" keep their letters/digits and pass untouched.
-    core = _MASK_STRIP_RE.sub("", text)
-    if not any(ch.isalnum() for ch in core):
+    # Strip mask RUNS first, so a placeholder tacked onto a real value
+    # ("Heep **********") does not ride along on the string.
+    text = _WS_RE.sub(" ", _MASK_RUN_RE.sub(" ", text)).strip()
+    if not any(ch.isalnum() for ch in _MASK_STRIP_RE.sub("", text)):
         return None
     return text
 

@@ -304,15 +304,15 @@ class TestRedactionMasks:
         assert data["full_name"] == "Mathis Vella"
         assert data.get("headline") is None
 
-    def test_partially_masked_text_is_kept(self):
-        # Only wholly-masked values are dropped; real text survives.
+    def test_partially_masked_text_keeps_the_real_part_and_drops_the_mask(self):
+        # A mask run tacked onto real text is stripped; the real part survives.
         html = (
             '<html><body><section class="top-card-layout">'
             '<h1 class="top-card-layout__title">Jane Doe</h1>'
             '<h2 class="top-card-layout__headline">Engineer at ****</h2>'
             "</section></body></html>"
         )
-        assert parse_profile(html, "x", "u")["headline"] == "Engineer at ****"
+        assert parse_profile(html, "x", "u")["headline"] == "Engineer at"
 
 
 class TestModernGuestLayout:
@@ -379,3 +379,9 @@ class TestMaskDetection:
         for r in ("Heep", "Software Engineer", "3M", "AT&T", "C++ Developer",
                   "École 42", "Jan 2023 - Present · 1 yr", "2019 - 2021"):
             assert _clean(r) == r
+
+    def test_mask_run_tacked_onto_a_real_value_is_stripped(self):
+        # LinkedIn masks a partly-withheld field as "Heep **********".
+        from app.parser import _clean
+        assert _clean("Heep **********") == "Heep"
+        assert _clean("Acme Corp ���") == "Acme Corp"
