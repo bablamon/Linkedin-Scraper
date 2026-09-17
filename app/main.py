@@ -63,6 +63,20 @@ async def lifespan(app: FastAPI):
         transport = app.state.browser
         log.info("browser transport active (chromium)")
 
+    # With a session configured, /profile goes through the authenticated path —
+    # the only one that reaches ordinary profiles from a datacenter IP.
+    authed = None
+    if settings.prefer_authenticated and app.state.session_store.configured():
+        from .authed import AuthedProfileFetcher
+
+        authed = AuthedProfileFetcher(
+            pacer=pacer,
+            proxy_pool=app.state.proxy_pool,
+            session_store=app.state.session_store,
+            settings=settings,
+        )
+        log.info("profile source: authenticated graphql")
+
     app.state.service = ProfileService(
         Fetcher(
             pacer=pacer,
@@ -71,6 +85,7 @@ async def lifespan(app: FastAPI):
             transport=transport,
         ),
         app.state.cache,
+        authed=authed,
     )
     app.state.contact_fetcher = ContactFetcher(
         pacer=pacer,
@@ -140,6 +155,7 @@ async def health(request: Request) -> dict:
         "proxies": state.proxy_pool.stats(),
         "contact_session_configured": state.session_store.configured(),
         "transport": "browser" if state.browser is not None else "http",
+        "profile_source": "authenticated" if state.service.authed else "guest",
     }
 
 

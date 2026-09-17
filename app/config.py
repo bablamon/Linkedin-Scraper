@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     # Overridable because LinkedIn retires endpoints without notice — if /contact
     # starts returning ENDPOINT_RETIRED, point this at the current path.
     # `{member}` is replaced with the URL-encoded public identifier.
+    # When a session is configured, fetch /profile through the authenticated
+    # GraphQL path instead of guest scraping. This is what reaches ordinary
+    # profiles from a datacenter IP — guest mode cannot, at any fingerprint.
+    prefer_authenticated: bool = True
+    # Captured from the live web client. LinkedIn versions these hashes and they
+    # rotate with their releases: when /profile starts returning QUERY_ID_STALE,
+    # grab the current one from a browser network tab (filter "graphql") and set
+    # this env var. No redeploy needed.
+    profile_query_id: str = "voyagerIdentityDashProfiles.b5c27c04968c409fc0ed3546575b9b7a"
     contact_endpoint: str = (
         "https://www.linkedin.com/voyager/api/identity/dash/profiles"
         "?q=memberIdentity&memberIdentity={member}"
