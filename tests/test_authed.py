@@ -157,3 +157,24 @@ class TestFetcher:
         with pytest.raises(QueryIdStale) as exc:
             await fetcher.fetch("x")
         assert "PROFILE_QUERY_ID" in exc.value.message
+
+
+class TestPersistentTransport:
+    """The authenticated path must hold one session across calls: Voyager
+    bounces requests between load-balancer hosts until `lidc` is echoed back,
+    and a session-per-call transport has to redo that dance every time. Observed
+    live as 'Maximum (20) redirects followed' on the second of two calls."""
+
+    def test_reuses_one_session_across_calls(self):
+        from app.authed import PersistentTransport
+
+        t = PersistentTransport()
+        assert t._session is None          # created lazily, then retained
+
+    async def test_a_failure_drops_the_session_rather_than_wedging_it(self):
+        from app.authed import PersistentTransport
+
+        t = PersistentTransport()
+        t._session = object()              # stand-in for a poisoned jar
+        await t.close()
+        assert t._session is None

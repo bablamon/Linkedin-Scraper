@@ -23,6 +23,7 @@ names are far more stable.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from urllib.parse import quote
@@ -189,6 +190,66 @@ def parse_authed_profile(payload: dict, slug: str) -> dict:
 
 # --------------------------------------------------------------------------- #
 
+class PersistentTransport:
+    """One curl_cffi session reused across calls, so `lidc` is retained.
+
+    Voyager bounces a request between load-balancer hosts until the client
+    echoes back the `lidc` cookie it sets. A session-per-call transport has to
+    redo that dance every single time and sometimes never converges — observed
+    live as "Maximum (20) redirects followed" on the second of two calls.
+
+    Persisting is also the more honest fingerprint: a signed-in member keeps one
+    session, they do not present a brand-new one for every request. That is the
+    opposite of the guest path, where a fresh identity per attempt is the point.
+    """
+
+    def __init__(self) -> None:
+        self._session = None
+        self._lock = asyncio.Lock()
+
+    async def _ensure(self, cookies):
+        async with self._lock:
+            if self._session is None:
+                from curl_cffi.requests import AsyncSession
+
+                self._session = AsyncSession(cookies=dict(cookies or {}))
+            return self._session
+
+    async def close(self) -> None:
+        async with self._lock:
+            session, self._session = self._session, None
+        if session is not None:
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+    async def get(self, url, *, headers, impersonate, proxy, timeout, cookies=None):
+        session = await self._ensure(cookies)
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        try:
+            response = await session.get(
+                url,
+                headers=headers,
+                impersonate=impersonate,
+                proxies=proxies,
+                timeout=timeout,
+                allow_redirects=True,
+                max_redirects=20,
+            )
+        except Exception as exc:
+            # Drop the session so a poisoned jar cannot wedge every later call.
+            await self.close()
+            message = str(exc).lower()
+            if "timed out" in message or "timeout" in message:
+                from .errors import UpstreamTimeout
+
+                raise UpstreamTimeout(detail=str(exc)[:200]) from exc
+            raise UpstreamError(detail=str(exc)[:200]) from exc
+
+        return response.status_code, str(response.url), response.text
+
+
 class AuthedProfileFetcher:
     """Resolve slug -> member id -> full profile. `transport` is injectable."""
 
@@ -197,11 +258,7 @@ class AuthedProfileFetcher:
         self.proxy_pool = proxy_pool
         self.session_store = session_store
         self.settings = settings
-        if transport is None:
-            from .fetcher import _CurlTransport
-
-            transport = _CurlTransport()
-        self._transport = transport
+        self._transport = PersistentTransport() if transport is None else transport
 
     async def fetch(self, slug: str) -> dict:
         session = self.session_store.get()
