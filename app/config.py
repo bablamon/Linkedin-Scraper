@@ -26,11 +26,17 @@ class Settings(BaseSettings):
 
     # --- fetching ---
     # Use a real Chromium (Playwright) instead of the impersonated HTTP client.
-    # Slower and much heavier, but it executes JavaScript, so it can satisfy
-    # challenges curl_cffi cannot. Toggleable so both can be measured on the
-    # same box — which is the only measurement that counts, since local results
-    # have not transferred to this VPS.
-    use_browser: bool = True
+    #
+    # OFF, because it was measured WORSE on the deployed datacenter IP, not
+    # better: with the browser, 0/6 ordinary profiles AND the known-good control
+    # (williamhgates, which the HTTP transport fetches every time) all returned
+    # 999. Headless Chromium is more detectable from a flagged IP than curl_cffi
+    # impersonation — WebGL vendor strings, missing codecs and Chromium-vs-Chrome
+    # branding are not patchable from an init script.
+    #
+    # Kept because it may win from a residential egress, where the trade-offs
+    # differ. Measure before enabling; do not assume.
+    use_browser: bool = False
     # Browser attempts cost seconds each, so the ladder is shorter by default.
     browser_max_attempts: int = 2
     # Overrides the ladder's per-rung personas with a comma-separated pool
