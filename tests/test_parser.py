@@ -360,3 +360,22 @@ class TestModernGuestLayout:
 
     def test_not_marked_partial(self):
         assert self._load()["_partial"] is False
+
+
+class TestMaskDetection:
+    """LinkedIn masks withheld guest fields with several placeholder characters.
+    Detection is character-agnostic: a value with no surviving alphanumeric is a
+    mask, whatever glyph was used."""
+
+    def test_every_mask_variant_nulls(self):
+        from app.parser import _clean
+        for m in ("***", "*** ******", "���", "- - -",
+                  "undefined", "undefined undefined", "*** undefined",
+                  "██", "••", "   "):
+            assert _clean(m) is None, repr(m)
+
+    def test_real_values_survive(self):
+        from app.parser import _clean
+        for r in ("Heep", "Software Engineer", "3M", "AT&T", "C++ Developer",
+                  "École 42", "Jan 2023 - Present · 1 yr", "2019 - 2021"):
+            assert _clean(r) == r

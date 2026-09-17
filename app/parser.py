@@ -74,11 +74,13 @@ def _clean(value: str | None) -> str | None:
     if not text:
         return None
     # LinkedIn masks fields it withholds from guests, and the mask must never be
-    # returned as data. Seen live: asterisks ("*** ******"), the U+FFFD
-    # replacement char, a literal "-", and JS "undefined" placeholders. Null the
-    # string only if nothing survives stripping the mask tokens — real values
-    # keep letters/digits, so a date like "Jan 2023 · 1 yr" is untouched.
-    if _MASK_STRIP_RE.sub("", text) == "":
+    # returned as data. It uses several placeholder characters (asterisks, a
+    # replacement glyph, dashes) plus the literal "undefined" — rather than chase
+    # each one, strip the known mask tokens and require at least one real
+    # alphanumeric to survive. Real values always do; a mask never does. Dates
+    # like "Jan 2023 · 1 yr" keep their letters/digits and pass untouched.
+    core = _MASK_STRIP_RE.sub("", text)
+    if not any(ch.isalnum() for ch in core):
         return None
     return text
 
@@ -730,12 +732,16 @@ def parse_profile(html: str, slug: str, source_url: str) -> dict:
     person = extract_jsonld_person(tree)
     if person:
         for key, value in _from_jsonld(person).items():
-            # JSON-LD wins on identity. For the guest experience/education teaser
-            # it is often the *fuller* source (all employers, name-only), so keep
-            # whichever source carries more entries rather than always the DOM.
+            # JSON-LD wins on identity. For experience/education, keep whichever
+            # source has more *content-ful* rows — masked JSON-LD entries clean
+            # down to empty shells, so a blurred profile's DOM teaser (a couple
+            # of real visible roles) rightly beats eleven masked JSON-LD rows.
             if key in ("experience", "education"):
-                if len(merged.get(key) or []) >= len(value or []):
+                dom_rows = merged.get(key) or []
+                ld_rows = [e for e in (value or []) if _entry_has_content(e)]
+                if len(dom_rows) >= len(ld_rows):
                     continue
+                value = ld_rows
             elif key in ("languages", "honors") and merged.get(key):
                 continue
             if key == "location" and isinstance(merged.get("location"), Location):
