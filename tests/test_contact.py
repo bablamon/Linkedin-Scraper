@@ -77,13 +77,19 @@ class TestAuthSession:
     def test_csrf_token_matches_the_cookie_it_sends(self):
         # Voyager's double-submit check: header must equal the cookie value.
         session = AuthSession("x", "ajax:555")
-        headers = session.headers(referer="https://www.linkedin.com/in/x/")
-        assert headers["csrf-token"] == "ajax:555"
-        assert 'JSESSIONID="ajax:555"' in headers["cookie"]
+        assert session.headers(referer="https://www.linkedin.com/in/x/")["csrf-token"] == "ajax:555"
+        assert session.cookies()["JSESSIONID"] == '"ajax:555"'
 
     def test_li_at_is_sent_as_the_auth_cookie(self):
-        headers = AuthSession("secret_token", "ajax:1").headers(referer="r")
-        assert "li_at=secret_token" in headers["cookie"]
+        assert AuthSession("secret_token", "ajax:1").cookies()["li_at"] == "secret_token"
+
+    def test_cookies_travel_as_a_jar_never_as_a_header(self):
+        # A hand-built cookie header shadows curl_cffi's jar, so LinkedIn's
+        # load-balancer lidc Set-Cookie is never echoed back and Voyager
+        # 302-redirects to the same URL until curl aborts at 30 hops.
+        session = AuthSession("tok", "ajax:9")
+        assert "cookie" not in session.headers(referer="r")
+        assert set(session.cookies()) == {"li_at", "JSESSIONID"}
 
     def test_sends_the_dash_headers(self):
         headers = AuthSession("x", "ajax:1").headers(referer="https://ref/")
@@ -229,7 +235,7 @@ class TestFetch:
         call = transport.calls[0]
         assert "identity/dash/profiles" in call["url"]
         assert "memberIdentity=jean-example-42a1b3" in call["url"]
-        assert "li_at=li_at_value" in call["headers"]["cookie"]
+        assert call["cookies"]["li_at"] == "li_at_value"
         assert call["headers"]["csrf-token"] == "ajax:123"
 
     async def test_slug_is_url_encoded_in_the_query(self, dash_body):

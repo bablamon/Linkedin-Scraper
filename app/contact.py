@@ -109,13 +109,19 @@ class AuthSession:
         # The header carries the JSESSIONID value without its surrounding quotes.
         return self.jsessionid.strip().strip('"')
 
-    def _cookie_header(self) -> str:
-        return f'li_at={self.li_at}; JSESSIONID="{self.csrf_token}"'
+    def cookies(self) -> dict[str, str]:
+        """The jar, handed to the transport as cookies — never as a header.
+
+        A hand-built `cookie` header shadows curl_cffi's jar, so LinkedIn's
+        load-balancer `lidc` Set-Cookie is never echoed back and Voyager
+        302-redirects to the same URL forever (observed: 30 redirects, then
+        TooManyRedirects). Same failure mode the guest transport had.
+        """
+        return {"li_at": self.li_at, "JSESSIONID": f'"{self.csrf_token}"'}
 
     def headers(self, referer: str) -> dict[str, str]:
         return {
             "accept": "application/vnd.linkedin.normalized+json+2.1",
-            "cookie": self._cookie_header(),
             "csrf-token": self.csrf_token,
             "x-restli-protocol-version": "2.0.0",
             "x-li-lang": "en_US",
@@ -319,6 +325,7 @@ class ContactFetcher:
                 impersonate=_IMPERSONATE,
                 proxy=proxy,
                 timeout=self.settings.request_timeout_s,
+                cookies=session.cookies(),
             )
         except (UpstreamTimeout, UpstreamError):
             self.proxy_pool.penalise(proxy)
