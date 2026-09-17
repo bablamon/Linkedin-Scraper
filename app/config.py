@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     upstream_jitter_ms: int = 700
 
     # --- fetching ---
+    # Use a real Chromium (Playwright) instead of the impersonated HTTP client.
+    # Slower and much heavier, but it executes JavaScript, so it can satisfy
+    # challenges curl_cffi cannot. Toggleable so both can be measured on the
+    # same box — which is the only measurement that counts, since local results
+    # have not transferred to this VPS.
+    use_browser: bool = True
+    # Browser attempts cost seconds each, so the ladder is shorter by default.
+    browser_max_attempts: int = 2
     # Overrides the ladder's per-rung personas with a comma-separated pool
     # chosen at random. Empty = the built-in per-rung assignment, which is
     # deliberately persona-diverse and is what the measurements support.

@@ -167,7 +167,12 @@ class Fetcher:
         self._transport = _CurlTransport() if transport is None else transport
 
     async def fetch_profile(self, slug: str) -> FetchResult:
-        ladder = build_ladder()[: max(1, self.settings.max_attempts)]
+        attempts = (
+            self.settings.browser_max_attempts
+            if getattr(self.settings, "use_browser", False)
+            else self.settings.max_attempts
+        )
+        ladder = build_ladder()[: max(1, attempts)]
         deadline = time.monotonic() + self.settings.total_timeout_s
         last_outcome: Outcome | None = None
         # Kept so an all-timeouts run reports 504 rather than a vague 502.

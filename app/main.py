@@ -52,8 +52,24 @@ async def lifespan(app: FastAPI):
         jsessionid=settings.linkedin_jsessionid,
         file_path=settings.session_file,
     )
+    # One Chromium for the process, started here rather than per request.
+    app.state.browser = None
+    transport = None
+    if settings.use_browser:
+        from .browser import PlaywrightTransport
+
+        app.state.browser = PlaywrightTransport()
+        await app.state.browser.start()
+        transport = app.state.browser
+        log.info("browser transport active (chromium)")
+
     app.state.service = ProfileService(
-        Fetcher(pacer=pacer, proxy_pool=app.state.proxy_pool, settings=settings),
+        Fetcher(
+            pacer=pacer,
+            proxy_pool=app.state.proxy_pool,
+            settings=settings,
+            transport=transport,
+        ),
         app.state.cache,
     )
     app.state.contact_fetcher = ContactFetcher(
@@ -69,6 +85,9 @@ async def lifespan(app: FastAPI):
         "configured" if app.state.session_store.configured() else "not configured",
     )
     yield
+
+    if app.state.browser is not None:
+        await app.state.browser.close()
 
 
 app = FastAPI(
@@ -120,6 +139,7 @@ async def health(request: Request) -> dict:
         "cache_entries": len(state.cache),
         "proxies": state.proxy_pool.stats(),
         "contact_session_configured": state.session_store.configured(),
+        "transport": "browser" if state.browser is not None else "http",
     }
 
 

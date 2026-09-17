@@ -9,7 +9,8 @@ from tests.conftest import FakeTransport, NoPacer, NoProxies
 
 
 def make_fetcher(script, *, proxy_pool=None, max_attempts=4):
-    settings = Settings(max_attempts=max_attempts, total_timeout_s=5, request_timeout_s=2)
+    settings = Settings(max_attempts=max_attempts, total_timeout_s=5, request_timeout_s=2,
+                        use_browser=False)
     transport = FakeTransport(script)
     fetcher = Fetcher(
         pacer=NoPacer(),

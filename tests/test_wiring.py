@@ -7,9 +7,18 @@ production path is caught here rather than in Coolify.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _http_transport(monkeypatch):
+    """Boot the real lifespan but on the HTTP transport — launching a real
+    Chromium in unit tests would be slow and require the browser installed."""
+    monkeypatch.setattr(settings, "use_browser", False)
 
 
 def test_lifespan_boots_and_health_reports_real_state():

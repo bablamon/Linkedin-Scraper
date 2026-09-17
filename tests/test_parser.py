@@ -287,3 +287,29 @@ class TestPublicContactHints:
         # Structured fields (urls, dates) must never be scanned for emails/phones.
         merged = {"about": None, "headline": None}
         assert extract_contact_hints(merged) == extract_contact_hints({})
+
+
+class TestRedactionMasks:
+    """LinkedIn replaces some guest-visible fields with asterisks. Returning the
+    mask is worse than returning null — it looks like real data to a caller."""
+
+    def test_fully_masked_text_becomes_null(self):
+        html = (
+            '<html><body><section class="top-card-layout">'
+            '<h1 class="top-card-layout__title">Mathis Vella</h1>'
+            '<h2 class="top-card-layout__headline">**********</h2>'
+            "</section></body></html>"
+        )
+        data = parse_profile(html, "x", "u")
+        assert data["full_name"] == "Mathis Vella"
+        assert data.get("headline") is None
+
+    def test_partially_masked_text_is_kept(self):
+        # Only wholly-masked values are dropped; real text survives.
+        html = (
+            '<html><body><section class="top-card-layout">'
+            '<h1 class="top-card-layout__title">Jane Doe</h1>'
+            '<h2 class="top-card-layout__headline">Engineer at ****</h2>'
+            "</section></body></html>"
+        )
+        assert parse_profile(html, "x", "u")["headline"] == "Engineer at ****"

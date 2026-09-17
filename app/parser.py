@@ -69,7 +69,14 @@ def _clean(value: str | None) -> str | None:
     if not value:
         return None
     text = _WS_RE.sub(" ", value.replace(" ", " ")).strip()
-    return text or None
+    if not text:
+        return None
+    # LinkedIn redacts some fields for guests by replacing the characters with
+    # asterisks ("*** ******" where a job title would be). Returning the mask is
+    # worse than returning nothing — it looks like real data to a caller.
+    if text.replace("*", "").replace("•", "").strip() == "":
+        return None
+    return text
 
 
 def _node_text(node: Node | None) -> str | None:

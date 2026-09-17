@@ -21,6 +21,7 @@ def client(full_html):
     from app.contact import ContactFetcher, SessionStore
 
     app = main.app
+    app.state.browser = None          # http transport in tests
     app.state.bucket = TokenBucket(10, 60.0)
     app.state.proxy_pool = NoProxies()
     app.state.cache = TTLCache(maxsize=16, ttl=60)
@@ -28,7 +29,7 @@ def client(full_html):
         Fetcher(
             pacer=NoPacer(),
             proxy_pool=NoProxies(),
-            settings=Settings(max_attempts=4, total_timeout_s=5),
+            settings=Settings(max_attempts=4, total_timeout_s=5, use_browser=False),
             transport=FakeTransport([(200, "https://fr.linkedin.com/in/x", full_html)] * 8),
         ),
         app.state.cache,
